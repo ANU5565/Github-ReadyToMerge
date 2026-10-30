@@ -40,31 +40,112 @@
 </ul>
 
 <script>
+  import { createSlug, formatBookmark, normalizeUrl, parseBookmarks, type Bookmark } from './bookmarks';
+
   // CLIENT-SIDE BOUNDARY — runs in the browser only.
-  //
-  // TODO (Step 3): implement the bookmarks feature here.
-  //   1. On form submit, call event.preventDefault() FIRST so the page
-  //      never reloads, then read and validate the original URL.
-  //   2. Generate a short slug with a "mona-" prefix (for example, base62
-  //      of a counter or hash → "mona-7fk2").
-  //   3. Save the original URL and its slug, then persist them in the browser.
-  //   4. Render each saved bookmark into #bookmark-list as a row (li.bookmark) with:
-  //        - the original URL as a link (.url) that opens in a new tab,
-  //        - its short slug shown as a badge (.slug), and
-  //        - a "Copy" button (.copy) that copies the slug.
-  //   5. Toggle empty vs. saved state: hide #empty-state and show #list-header
-  //      (the "Saved bookmarks" heading + "Clear all" button) once at least one
-  //      bookmark exists; reverse it when the list is empty.
-  //   6. Wire the #clear-all button to remove every saved bookmark (clear the
-  //      list, clear browser storage) after a quick confirm.
-  //   7. On page load, read the saved bookmarks from storage and render
-  //      them so the list persists across reloads.
-  //
-  // Because this code lives in a client <script>, browser storage APIs are
-  // safe to use here without breaking the static build.
-  const form = document.getElementById('add-bookmark');
+  const storageKey = 'mona-bookmarks';
+  const form = document.getElementById('add-bookmark') as HTMLFormElement | null;
+  const input = document.getElementById('url') as HTMLInputElement | null;
+  const list = document.getElementById('bookmark-list');
+  const emptyState = document.getElementById('empty-state');
+  const listHeader = document.getElementById('list-header');
+  const clearAll = document.getElementById('clear-all');
+  let bookmarks: Bookmark[] = [];
+
+  function readBookmarks(): Bookmark[] {
+    try {
+      return parseBookmarks(localStorage.getItem(storageKey));
+    } catch {
+      return [];
+    }
+  }
+
+  function writeBookmarks(): void {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(bookmarks));
+    } catch {
+      // Storage can be unavailable or full; the in-memory list remains usable.
+    }
+  }
+
+  function renderBookmarks(): void {
+    if (!list) return;
+    list.replaceChildren();
+
+    for (const bookmark of bookmarks) {
+      const item = document.createElement('li');
+      item.className = 'bookmark';
+      item.setAttribute('aria-label', formatBookmark(bookmark));
+
+      const link = document.createElement('a');
+      link.className = 'url';
+      link.href = bookmark.url;
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      link.textContent = bookmark.url;
+
+      const separator = document.createTextNode(' :: ');
+      const slug = document.createElement('span');
+      slug.className = 'slug';
+      slug.textContent = bookmark.slug;
+
+      const copy = document.createElement('button');
+      copy.className = 'copy';
+      copy.type = 'button';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(bookmark.slug);
+          copy.textContent = 'Copied';
+          window.setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+        } catch {
+          copy.textContent = 'Copy failed';
+          window.setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+        }
+      });
+
+      item.append(link, separator, slug, copy);
+      list.append(item);
+    }
+
+    const hasBookmarks = bookmarks.length > 0;
+    if (emptyState) emptyState.hidden = hasBookmarks;
+    if (listHeader) listHeader.hidden = !hasBookmarks;
+  }
+
   form?.addEventListener('submit', (event) => {
-    event.preventDefault(); // keep this — stops the page from reloading
-    // Implement in Step 3.
+    event.preventDefault();
+    const url = normalizeUrl(input?.value ?? '');
+    if (!url) {
+      input?.setCustomValidity('Enter a valid website URL.');
+      input?.reportValidity();
+      return;
+    }
+
+    input?.setCustomValidity('');
+    let seed = Date.now() + Math.floor(Math.random() * 1000);
+    let slug = createSlug(seed);
+    while (bookmarks.some((bookmark) => bookmark.slug === slug)) {
+      slug = createSlug(++seed);
+    }
+
+    bookmarks = [...bookmarks, { url, slug }];
+    writeBookmarks();
+    renderBookmarks();
+    form.reset();
   });
+
+  clearAll?.addEventListener('click', () => {
+    if (!bookmarks.length || !window.confirm('Clear all saved bookmarks?')) return;
+    bookmarks = [];
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      // Storage can be unavailable; the in-memory list is still cleared.
+    }
+    renderBookmarks();
+  });
+
+  bookmarks = readBookmarks();
+  renderBookmarks();
 </script>
