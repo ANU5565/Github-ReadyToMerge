@@ -40,31 +40,97 @@
 </ul>
 
 <script>
-  // CLIENT-SIDE BOUNDARY — runs in the browser only.
-  //
-  // TODO (Step 3): implement the bookmarks feature here.
-  //   1. On form submit, call event.preventDefault() FIRST so the page
-  //      never reloads, then read and validate the original URL.
-  //   2. Generate a short slug with a "mona-" prefix (for example, base62
-  //      of a counter or hash → "mona-7fk2").
-  //   3. Save the original URL and its slug, then persist them in the browser.
-  //   4. Render each saved bookmark into #bookmark-list as a row (li.bookmark) with:
-  //        - the original URL as a link (.url) that opens in a new tab,
-  //        - its short slug shown as a badge (.slug), and
-  //        - a "Copy" button (.copy) that copies the slug.
-  //   5. Toggle empty vs. saved state: hide #empty-state and show #list-header
-  //      (the "Saved bookmarks" heading + "Clear all" button) once at least one
-  //      bookmark exists; reverse it when the list is empty.
-  //   6. Wire the #clear-all button to remove every saved bookmark (clear the
-  //      list, clear browser storage) after a quick confirm.
-  //   7. On page load, read the saved bookmarks from storage and render
-  //      them so the list persists across reloads.
-  //
-  // Because this code lives in a client <script>, browser storage APIs are
-  // safe to use here without breaking the static build.
+  import { createSlug, formatBookmark, loadBookmarks, normalizeUrl, saveBookmarks } from './bookmark-helpers.js';
+
   const form = document.getElementById('add-bookmark');
-  form?.addEventListener('submit', (event) => {
-    event.preventDefault(); // keep this — stops the page from reloading
-    // Implement in Step 3.
+  const list = document.getElementById('bookmark-list');
+  const urlInput = document.getElementById('url');
+  const emptyState = document.getElementById('empty-state');
+  const listHeader = document.getElementById('list-header');
+  const clearAll = document.getElementById('clear-all');
+
+  if (!(form instanceof HTMLFormElement)) throw new Error('Expected #add-bookmark form');
+  if (!(list instanceof HTMLUListElement)) throw new Error('Expected #bookmark-list list');
+  if (!(urlInput instanceof HTMLInputElement)) throw new Error('Expected #url input');
+  if (!(emptyState instanceof HTMLElement)) throw new Error('Expected #empty-state element');
+  if (!(listHeader instanceof HTMLElement)) throw new Error('Expected #list-header element');
+  if (!(clearAll instanceof HTMLButtonElement)) throw new Error('Expected #clear-all button');
+
+  let bookmarks = loadBookmarks(window.localStorage);
+
+  const setState = () => {
+    const hasBookmarks = bookmarks.length > 0;
+    emptyState.hidden = hasBookmarks;
+    listHeader.hidden = !hasBookmarks;
+  };
+
+  const render = () => {
+    list.textContent = '';
+
+    for (const bookmark of bookmarks) {
+      const row = document.createElement('li');
+      row.className = 'bookmark';
+
+      const link = document.createElement('a');
+      link.className = 'url';
+      link.href = bookmark.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = bookmark.url;
+
+      const separator = document.createElement('span');
+      separator.textContent = ' :: ';
+
+      const slug = document.createElement('span');
+      slug.className = 'slug';
+      slug.textContent = bookmark.slug;
+
+      const copyButton = document.createElement('button');
+      copyButton.type = 'button';
+      copyButton.className = 'copy';
+      copyButton.textContent = 'Copy';
+      copyButton.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(bookmark.slug);
+          copyButton.textContent = 'Copied';
+          window.setTimeout(() => {
+            copyButton.textContent = 'Copy';
+          }, 900);
+        } catch {
+          copyButton.textContent = 'Copy unavailable';
+          window.setTimeout(() => {
+            copyButton.textContent = 'Copy';
+          }, 1200);
+        }
+      });
+
+      row.append(link, separator, slug, copyButton);
+      row.setAttribute('aria-label', formatBookmark(bookmark));
+      list.append(row);
+    }
+
+    setState();
+  };
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+
+    const normalized = normalizeUrl(urlInput.value);
+    if (!normalized) return;
+
+    bookmarks = [...bookmarks, { url: normalized, slug: createSlug(window.localStorage) }];
+    saveBookmarks(window.localStorage, bookmarks);
+    render();
+    form.reset();
+    urlInput.focus();
   });
+
+  clearAll.addEventListener('click', () => {
+    if (!window.confirm('Clear all saved bookmarks?')) return;
+    bookmarks = [];
+    saveBookmarks(window.localStorage, bookmarks);
+    render();
+  });
+
+  render();
 </script>
